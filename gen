@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+
+import graphviz
+import random
+
+K = 7
+O = K - 1
+D = -O
+R = 12
+MIN_MARGIN = 2
+MIN_TESTS = 4
+MAX_TESTS = int(MIN_TESTS * 1.25)
+FRAMES_PER_READ = 2
+SCORE_PEAK_FACTOR = 0.24
+
+CORRECT_PATHS_FRACTION = 0.5
+
+BASES = [ 'A', 'C', 'T', 'G' ]
+
+def read_long_enough(read_size, repeat_size):
+    return read_size >= MIN_TESTS - 1 + MIN_MARGIN + repeat_size + MIN_MARGIN
+
+def path_sequence_long_enough(path_size, read_size):
+    return path_size < 2 * R - read_size - 2 * MIN_MARGIN
+
+def random_sequence(size):
+    sequence = ""
+    for _ in range(size):
+        sequence += BASES[random.randint(0, 3)]
+    return sequence
+
+def next_name():
+    next_name.names += 1
+    return str(next_name.names)
+next_name.names = -1
+
+dot = graphviz.Digraph('adj')
+dot.attr('graph', k=str(K))
+dot.attr('edge', d=str(D))
+
+class Node:
+
+    all_nodes = []
+
+    def __init__(self, name, sequence):
+        self.name = name
+        self.sequence = sequence
+        self.in_edges = []
+        self.out_edges = []
+
+        global dot
+        dot.node(self.name + "+")
+        dot.node(self.name + "-")
+
+        Node.all_nodes.append(self)
+
+    def add_left(self, size, overlap):
+        node = Node(next_name(), random_sequence(size - overlap) + self.sequence[:overlap])
+        self.in_edges.append(Edge(node, overlap))
+        node.out_edges.append(Edge(self, overlap))
+
+        global dot
+        dot.edge(node.name + "+", self.name + "+")
+        dot.edge(self.name + "-", node.name + "-")
+
+        return node
+
+    def add_right(self, size, overlap):
+        node = Node(next_name(), self.sequence[(size - overlap):] + random_sequence(size - overlap))
+        self.out_edges.append(Edge(node, overlap))
+        node.in_edges.append(Edge(self, overlap))
+
+        global dot
+        dot.edge(self.name + "+", node.name + "+")
+        dot.edge(node.name + "-", self.name + "-")
+
+        return node
+
+class Edge:
+
+    def __init__(self, node, overlap):
+        self.node = node
+        self.overlap = overlap
+
+def build_graph():
+    start = Node(next_name(), random_sequence(K))
+    for _ in range(2):
+        node = start.add_left(K, O // 2)
+        for _ in range(2):
+            node.add_left(K, O // 2)
+    for _ in range(2):
+        node = start.add_right(K, O // 2)
+        for _ in range(2):
+            node.add_right(K, O // 2)
+    return start
+
+start_node = build_graph()
+
+def make_reads():
+    reads = []
+    for node in Node.all_nodes:
+        for in_edge in node.in_edges:
+            for out_edge in node.out_edges:
+                if random.random() <= CORRECT_PATHS_FRACTION:
+                    in_node = in_edge.node
+                    out_node = out_edge.node
+                    print(
+                        "[" + in_node.name + ": " + in_node.sequence + "] -> " + \
+                        "[" + node.name + ": " + node.sequence + "] -> " + \
+                        "[" + out_node.name + ": " + out_node.sequence + "]"
+                    )
+
+                    path_sequence = in_node.sequence + node.sequence[in_edge.overlap:] + out_node.sequence[out_edge.overlap:]
+                    while path_sequence_long_enough(len(path_sequence), len(node.sequence)):
+                        in_edge = in_node.in_edges[random.randint(0, len(in_node.in_edges) - 1)]
+                        in_node = in_edge.node
+                        out_node.out_edges[random.randint(0, len(out_node.out_edges) - 1)]
+                        out_node = out_edge.node
+                        path_sequence = in_node.sequence[-in_edge.overlap:] + path_sequence + out_node.sequence[out_edge.overlap:]
+
+                    for i in range(len(path_sequence) - R):
+                        reads.append(path_sequence[i:(i + R)])
+    return reads
+
+reads = make_reads()
+print("Reads:\n", reads)
+
+dot.save('graph.dot')
+with open('graph.fa', 'w') as f:
+    for node in Node.all_nodes:
+        f.write('>' + node.name + '\n' + node.sequence + '\n')
