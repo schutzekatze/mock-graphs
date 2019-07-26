@@ -95,7 +95,7 @@ def add_left(graph, node, size, overlap):
     return left_node
 
 def add_right(graph, node, size, overlap):
-    right_node = Node(next_name(), node.sequence[-overlap] + random_sequence(size - overlap))
+    right_node = Node(next_name(), node.sequence[-overlap:] + random_sequence(size - overlap))
     graph.add_node(right_node, l=size, C=0)
     graph.add_edge(node, right_node, d=-overlap)
     return right_node
@@ -104,14 +104,16 @@ def build_input_graph():
     graph = networkx.DiGraph()
     start = Node(next_name(), random_sequence(K))
     graph.add_node(start, l=K, C=0)
+
     for _ in range(2):
         node = add_left(graph, start, K, O // 2)
-        for _ in range(2):
-            add_left(graph, node, K, O // 2)
+        #for _ in range(2):
+        #    add_left(graph, node, K, O // 2)
     for _ in range(2):
         node = add_right(graph, start, K, O // 2)
-        for _ in range(2):
-            add_right(graph, node, K, O // 2)
+        #for _ in range(2):
+        #    add_right(graph, node, K, O // 2)
+
     return graph
 
 def get_correct_paths(graph):
@@ -172,29 +174,89 @@ def make_reads(graph, correct_paths):
     return reads
 
 def build_output_graph(graph, correct_paths, reads):
-    graph = copy.deepcopy(graph)
+    out_graph = networkx.DiGraph()
+
+    class Instance:
+
+        def __init__(self, node, instance_node, original_in_nodes, original_out_nodes, in_instances, out_instances):
+            self.node = node
+            self.instance_node = instance_node
+            self.original_in_nodes = original_in_nodes
+            self.original_out_nodes = original_out_nodes
+            self.in_instances = in_instances
+            self.out_instances = out_instances
+
+    node_instances = {}
     for node in graph.nodes():
         node_correct_paths = []
         for path in correct_paths:
             if path[2] == node:
                 node_correct_paths.append(path)
 
-        edges2remove = []
-        for in_edge in graph.in_edges(node):
-            for out_edge in graph.out_edges(node):
-                found = False
-                for path in node_correct_paths:
-                    if path[1] == in_edge and path[3] == out_edge:
-                        found = True
-                        break
-                if not found:
-                    edges2remove.append(in_edge)
-                    edges2remove.append(out_edge)
+        instances = []
 
-        for edge in edges2remove:
-            if graph.has_edge(edge[0], edge[1]):
-                graph.remove_edge(edge[0], edge[1])
-    return graph
+        if (len(graph.in_edges(node)) == 0) or (len(graph.out_edges(node)) == 0):
+            instance_node = Node(node.name + "/" + str(len(instances)), node.sequence)
+            out_graph.add_node(instance_node)
+            instances.append(Instance(node, instance_node,
+                [ edge[0] for edge in graph.in_edges(node) ],
+                [ edge[1] for edge in graph.out_edges(node) ], [], []))
+        else:
+            for in_edge in graph.in_edges(node):
+                in_node = in_edge[0]
+
+                out_nodes = []
+                for out_edge in graph.out_edges(node):
+                    out_node = out_edge[1]
+
+                    found = False
+                    for path in node_correct_paths:
+                        if (path[0] == in_node) and (path[4] == out_node):
+                            found = True
+                            break
+                    if found:
+                        out_nodes.append(out_node)
+
+                found = False
+                for instance in instances:
+                    if len(instance.original_out_nodes) == len(out_nodes):
+                        match = True
+                        for i in range(len(out_nodes)):
+                            if instance.original_out_nodes[i] != out_nodes[i]: match = False
+                        if match:
+                            found = True
+                            instance.original_in_nodes.append(in_node)
+
+                if not found:
+                    instance_node = Node(node.name + "/" + str(len(instances)), node.sequence)
+                    out_graph.add_node(instance_node)
+                    instances.append(Instance(node, instance_node, [ in_node ], out_nodes, [], []))
+
+        node_instances[node] = instances
+
+    distances = networkx.get_edge_attributes(graph, 'd')
+
+    for node in node_instances:
+        instances = node_instances[node]
+
+        for instance in instances:
+            instance_node = instance.instance_node
+
+            for in_node in instance.original_in_nodes:
+                in_instances = node_instances[in_node]
+                for in_instance in in_instances:
+                    if node in in_instance.original_out_nodes:
+                        out_graph.add_edge(in_instance.instance_node, instance_node,
+                            d=distances[(in_instance.node, instance.node)])
+
+            for out_node in instance.original_out_nodes:
+                out_instances = node_instances[out_node]
+                for out_instance in out_instances:
+                    if node in out_instance.original_in_nodes:
+                        out_graph.add_edge(instance_node, out_instance.instance_node,
+                            d=distances[(instance.node, out_instance.node)])
+
+    return out_graph
 
 input_graph = build_input_graph()
 
@@ -202,8 +264,7 @@ correct_paths = get_correct_paths(input_graph)
 reads = make_reads(input_graph, correct_paths)
 print("Reads:\n", reads)
 
-write_sequence_graph(input_graph, INPUT_DOT_FILENAME, INPUT_FA_FILENAME)
-
 output_graph = build_output_graph(input_graph, correct_paths, reads)
 
+write_sequence_graph(input_graph, INPUT_DOT_FILENAME, INPUT_FA_FILENAME)
 write_sequence_graph(output_graph, OUTPUT_DOT_FILENAME, OUTPUT_FA_FILENAME)
