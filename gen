@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
-import graphviz
+import networkx
+import copy
 import random
 
 K = 7
@@ -14,6 +15,11 @@ FRAMES_PER_READ = 2
 SCORE_PEAK_FACTOR = 0.24
 
 CORRECT_PATHS_FRACTION = 0.5
+
+INPUT_DOT_FILENAME = 'input.dot'
+INPUT_FA_FILENAME = 'input.fa'
+OUTPUT_DOT_FILENAME = 'output.dot'
+OUTPUT_FA_FILENAME = 'output.fa'
 
 BASES = [ 'A', 'C', 'T', 'G' ]
 
@@ -34,98 +40,170 @@ def next_name():
     return str(next_name.names)
 next_name.names = -1
 
-dot = graphviz.Digraph('adj')
-dot.attr('graph', k=str(K))
-dot.attr('edge', d=str(D))
-
 class Node:
-
-    all_nodes = []
 
     def __init__(self, name, sequence):
         self.name = name
         self.sequence = sequence
-        self.in_edges = []
-        self.out_edges = []
 
-        global dot
-        dot.node(self.name + "+")
-        dot.node(self.name + "-")
+    def __str__(self):
+        return self.name
 
-        Node.all_nodes.append(self)
+    def __hash__(self):
+        return self.name.__hash__()
 
-    def add_left(self, size, overlap):
-        node = Node(next_name(), random_sequence(size - overlap) + self.sequence[:overlap])
-        self.in_edges.append(Edge(node, overlap))
-        node.out_edges.append(Edge(self, overlap))
+def make_rc_graph(graph):
+    rc_graph = copy.deepcopy(graph).reverse()
 
-        global dot
-        dot.edge(node.name + "+", self.name + "+")
-        dot.edge(self.name + "-", node.name + "-")
+    for node in graph.nodes():
+        node.name += "+"
 
-        return node
+    for node in rc_graph.nodes():
+        node.name += "-"
 
-    def add_right(self, size, overlap):
-        node = Node(next_name(), self.sequence[(size - overlap):] + random_sequence(size - overlap))
-        self.out_edges.append(Edge(node, overlap))
-        node.in_edges.append(Edge(self, overlap))
+    return networkx.algorithms.operators.binary.compose(graph, rc_graph)
 
-        global dot
-        dot.edge(self.name + "+", node.name + "+")
-        dot.edge(node.name + "-", self.name + "-")
+def write_sequence_graph(graph, dot_filename, fa_filename):
+    graph = make_rc_graph(graph)
 
-        return node
+    out = networkx.drawing.nx_pydot.to_pydot(networkx.DiGraph())
+    out.set_strict(False)
+    out.set_name('adj')
+    out.set_graph_defaults(k=K)
+    out.set_edge_defaults(d=D)
 
-class Edge:
+    pydot_graph = networkx.drawing.nx_pydot.to_pydot(graph)
+    for edge in pydot_graph.get_edges():
+        edge.set_label(int(edge.get_label('d')), 'd')
 
-    def __init__(self, node, overlap):
-        self.node = node
-        self.overlap = overlap
+    for node in pydot_graph.get_nodes():
+        out.add_node(node)
+    for edge in pydot_graph.get_edges():
+        out.add_edge(edge)
 
-def build_graph():
+    out.write(dot_filename, prog='dot')
+
+    with open(fa_filename, 'w') as f:
+        for node in graph.nodes():
+            if node.name[-1] == "+":
+                f.write('>' + node.name[:-1] + '\n' + node.sequence + '\n')
+
+def add_left(graph, node, size, overlap):
+    left_node = Node(next_name(), random_sequence(size - overlap) + node.sequence[:overlap])
+    graph.add_node(left_node, l=size, C=0)
+    graph.add_edge(left_node, node, d=-overlap)
+    return left_node
+
+def add_right(graph, node, size, overlap):
+    right_node = Node(next_name(), node.sequence[-overlap] + random_sequence(size - overlap))
+    graph.add_node(right_node, l=size, C=0)
+    graph.add_edge(node, right_node, d=-overlap)
+    return right_node
+
+def build_input_graph():
+    graph = networkx.DiGraph()
     start = Node(next_name(), random_sequence(K))
+    graph.add_node(start, l=K, C=0)
     for _ in range(2):
-        node = start.add_left(K, O // 2)
+        node = add_left(graph, start, K, O // 2)
         for _ in range(2):
-            node.add_left(K, O // 2)
+            add_left(graph, node, K, O // 2)
     for _ in range(2):
-        node = start.add_right(K, O // 2)
+        node = add_right(graph, start, K, O // 2)
         for _ in range(2):
-            node.add_right(K, O // 2)
-    return start
+            add_right(graph, node, K, O // 2)
+    return graph
 
-start_node = build_graph()
-
-def make_reads():
-    reads = []
-    for node in Node.all_nodes:
-        for in_edge in node.in_edges:
-            for out_edge in node.out_edges:
+def get_correct_paths(graph):
+    paths = []
+    for node in graph.nodes():
+        for in_edge in graph.in_edges(node):
+            for out_edge in graph.out_edges(node):
                 if random.random() <= CORRECT_PATHS_FRACTION:
-                    in_node = in_edge.node
-                    out_node = out_edge.node
+                    in_node = in_edge[0]
+                    out_node = out_edge[1]
                     print(
                         "[" + in_node.name + ": " + in_node.sequence + "] -> " + \
                         "[" + node.name + ": " + node.sequence + "] -> " + \
                         "[" + out_node.name + ": " + out_node.sequence + "]"
                     )
+                    paths.append((in_node, in_edge, node, out_edge, out_node))
+    return paths
 
-                    path_sequence = in_node.sequence + node.sequence[in_edge.overlap:] + out_node.sequence[out_edge.overlap:]
-                    while path_sequence_long_enough(len(path_sequence), len(node.sequence)):
-                        in_edge = in_node.in_edges[random.randint(0, len(in_node.in_edges) - 1)]
-                        in_node = in_edge.node
-                        out_node.out_edges[random.randint(0, len(out_node.out_edges) - 1)]
-                        out_node = out_edge.node
-                        path_sequence = in_node.sequence[-in_edge.overlap:] + path_sequence + out_node.sequence[out_edge.overlap:]
+def make_reads(graph, correct_paths):
+    reads = []
+    for path in correct_paths:
+        distance = networkx.get_edge_attributes(graph, 'd')
 
-                    for i in range(len(path_sequence) - R):
-                        reads.append(path_sequence[i:(i + R)])
+        in_node = path[0]
+        in_edge = path[1]
+        in_overlap = -distance[in_edge]
+
+        node = path[2]
+
+        out_edge = path[3]
+        out_overlap = -distance[out_edge]
+        out_node = path[4]
+
+        path_sequence = in_node.sequence + node.sequence[in_overlap:] + out_node.sequence[out_overlap:]
+        while path_sequence_long_enough(len(path_sequence), len(node.sequence)):
+            in_edges = [ edge for edge in graph.in_edges(in_node) ]
+            if (len(in_edges) > 0):
+                in_edge = in_edges[random.randint(0, len(in_edges) - 1)]
+                in_node = in_edge[0]
+                in_overlap = -distance[in_edge]
+                in_sequence = in_node.sequence[-in_overlap:]
+            else:
+                in_sequence = ""
+
+            out_edges = [ edge for edge in graph.out_edges(out_node) ]
+            if (len(out_edges) > 0):
+                out_edge = out_edges[random.randint(0, len(out_edges) - 1)]
+                out_node = out_edge[1]
+                out_overlap = -distance[out_edge]
+                out_sequence = out_node.sequence[out_overlap:]
+            else:
+                out_sequence = ""
+
+            path_sequence = in_sequence + path_sequence + out_sequence
+
+        for i in range(len(path_sequence) - R):
+            reads.append(path_sequence[i:(i + R)])
     return reads
 
-reads = make_reads()
+def build_output_graph(graph, correct_paths, reads):
+    graph = copy.deepcopy(graph)
+    for node in graph.nodes():
+        node_correct_paths = []
+        for path in correct_paths:
+            if path[2] == node:
+                node_correct_paths.append(path)
+
+        edges2remove = []
+        for in_edge in graph.in_edges(node):
+            for out_edge in graph.out_edges(node):
+                found = False
+                for path in node_correct_paths:
+                    if path[1] == in_edge and path[3] == out_edge:
+                        found = True
+                        break
+                if not found:
+                    edges2remove.append(in_edge)
+                    edges2remove.append(out_edge)
+
+        for edge in edges2remove:
+            if graph.has_edge(edge[0], edge[1]):
+                graph.remove_edge(edge[0], edge[1])
+    return graph
+
+input_graph = build_input_graph()
+
+correct_paths = get_correct_paths(input_graph)
+reads = make_reads(input_graph, correct_paths)
 print("Reads:\n", reads)
 
-dot.save('graph.dot')
-with open('graph.fa', 'w') as f:
-    for node in Node.all_nodes:
-        f.write('>' + node.name + '\n' + node.sequence + '\n')
+write_sequence_graph(input_graph, INPUT_DOT_FILENAME, INPUT_FA_FILENAME)
+
+output_graph = build_output_graph(input_graph, correct_paths, reads)
+
+write_sequence_graph(output_graph, OUTPUT_DOT_FILENAME, OUTPUT_FA_FILENAME)
