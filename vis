@@ -6,6 +6,8 @@ INPUT_PREFIXES = [ 'input', 'output' ]
 
 COMPLEMENTS = { 'A' : 'T', 'T' : 'A', 'C' : 'G', 'G' : 'C' }
 
+SHOW_COMPLEMENTS = False
+
 def reverse_complement(sequence):
     rc = ''
     for base in sequence[::-1]:
@@ -22,23 +24,28 @@ for prefix in INPUT_PREFIXES:
             name = name.strip()[1:]
             sequence = f.readline().strip()
 
-            input_fa[name + "+"] = sequence
-            input_fa[name + "-"] = reverse_complement(sequence)
+            if SHOW_COMPLEMENTS:
+                input_fa[name + "+"] = sequence
+                input_fa[name + "-"] = reverse_complement(sequence)
+            else:
+                input_fa[name] = sequence
 
     output_dot = pygraphviz.AGraph(name='adj', directed=True, strict=False, rankdir='LR')
 
     for node in input_dot.nodes():
-        #if node[-1] == "+":
-        #    output_dot.add_node(node[:-1] + ": " + input_fa[node[:-1]])
-        output_dot.add_node(node + ": " + input_fa[node])
-
+        if SHOW_COMPLEMENTS:
+            output_dot.add_node(node + ": " + input_fa[node])
+        elif node[-1] == "+":
+            output_dot.add_node(node[:-1] + ": " + input_fa[node[:-1]])
+        
     for edge in input_dot.edges():
-        #if edge[0][-1] == "+":
-        #    node1 = edge[0][:-1] + ": " + input_fa[edge[0][:-1]]
-        #    node2 = edge[1][:-1] + ": " + input_fa[edge[1][:-1]]
-        #    output_dot.add_edge(node1, node2)
-        node1 = edge[0] + ": " + input_fa[edge[0]]
-        node2 = edge[1] + ": " + input_fa[edge[1]]
-        output_dot.add_edge(node1, node2)
+        if SHOW_COMPLEMENTS:
+            node1 = edge[0] + ": " + input_fa[edge[0]]
+            node2 = edge[1] + ": " + input_fa[edge[1]]
+            output_dot.add_edge(node1, node2)
+        elif edge[0][-1] == "+":
+            node1 = edge[0][:-1] + ": " + input_fa[edge[0][:-1]]
+            node2 = edge[1][:-1] + ": " + input_fa[edge[1][:-1]]
+            output_dot.add_edge(node1, node2)
 
     output_dot.draw(prefix + '.png', prog='dot')

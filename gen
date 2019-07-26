@@ -4,6 +4,8 @@ import networkx
 import copy
 import random
 
+random.seed(42)
+
 K = 7
 O = K - 1
 D = -O
@@ -107,18 +109,20 @@ def build_input_graph():
 
     for _ in range(2):
         node = add_left(graph, start, K, O // 2)
-        #for _ in range(2):
-        #    add_left(graph, node, K, O // 2)
+        for _ in range(2):
+            add_left(graph, node, K, O // 2)
     for _ in range(2):
         node = add_right(graph, start, K, O // 2)
-        #for _ in range(2):
-        #    add_right(graph, node, K, O // 2)
+        for _ in range(2):
+            add_right(graph, node, K, O // 2)
 
     return graph
 
 def get_correct_paths(graph):
     paths = []
     for node in graph.nodes():
+        if (len(graph.in_edges(node)) == 0) or (len(graph.out_edges(node)) == 0): continue
+
         for in_edge in graph.in_edges(node):
             for out_edge in graph.out_edges(node):
                 if random.random() <= CORRECT_PATHS_FRACTION:
@@ -198,9 +202,7 @@ def build_output_graph(graph, correct_paths, reads):
         if (len(graph.in_edges(node)) == 0) or (len(graph.out_edges(node)) == 0):
             instance_node = Node(node.name + "/" + str(len(instances)), node.sequence)
             out_graph.add_node(instance_node)
-            instances.append(Instance(node, instance_node,
-                [ edge[0] for edge in graph.in_edges(node) ],
-                [ edge[1] for edge in graph.out_edges(node) ], [], []))
+            instances.append(Instance(node, instance_node, [], [], [], []))
         else:
             for in_edge in graph.in_edges(node):
                 in_node = in_edge[0]
@@ -217,6 +219,8 @@ def build_output_graph(graph, correct_paths, reads):
                     if found:
                         out_nodes.append(out_node)
 
+                if len(out_nodes) == 0: continue
+
                 found = False
                 for instance in instances:
                     if len(instance.original_out_nodes) == len(out_nodes):
@@ -232,6 +236,11 @@ def build_output_graph(graph, correct_paths, reads):
                     out_graph.add_node(instance_node)
                     instances.append(Instance(node, instance_node, [ in_node ], out_nodes, [], []))
 
+        if len(instances) == 0:
+            instance_node = Node(node.name + "/" + str(len(instances)), node.sequence)
+            out_graph.add_node(instance_node)
+            instances.append(Instance(node, instance_node, [], [], [], []))
+
         node_instances[node] = instances
 
     distances = networkx.get_edge_attributes(graph, 'd')
@@ -244,15 +253,28 @@ def build_output_graph(graph, correct_paths, reads):
 
             for in_node in instance.original_in_nodes:
                 in_instances = node_instances[in_node]
+                found = False
                 for in_instance in in_instances:
                     if node in in_instance.original_out_nodes:
+                        out_graph.add_edge(in_instance.instance_node, instance_node,
+                            d=distances[(in_instance.node, instance.node)])
+                        found = True
+                if not found:
+                    for in_instance in in_instances:
                         out_graph.add_edge(in_instance.instance_node, instance_node,
                             d=distances[(in_instance.node, instance.node)])
 
             for out_node in instance.original_out_nodes:
                 out_instances = node_instances[out_node]
+                found = False
                 for out_instance in out_instances:
                     if node in out_instance.original_in_nodes:
+                        out_graph.add_edge(instance_node, out_instance.instance_node,
+                            d=distances[(instance.node, out_instance.node)])
+                        found = True
+                if not found:
+                    for out_instance in out_instances:
+                        pass
                         out_graph.add_edge(instance_node, out_instance.instance_node,
                             d=distances[(instance.node, out_instance.node)])
 
