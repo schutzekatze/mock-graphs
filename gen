@@ -4,24 +4,24 @@ import networkx
 import copy
 import random
 
-random.seed(42)
-
-K = 7
+K = 30
 O = K - 1
 D = -O
-R = 12
+R = 45
 MIN_MARGIN = 2
-MIN_TESTS = 4
+MIN_TESTS = 5
 MAX_TESTS = int(MIN_TESTS * 1.25)
 FRAMES_PER_READ = 2
 SCORE_PEAK_FACTOR = 0.24
 
 CORRECT_PATHS_FRACTION = 0.5
+OVERLAP_BETWEEN_NODES = O // 2
 
 INPUT_DOT_FILENAME = 'input.dot'
 INPUT_FA_FILENAME = 'input.fa'
 OUTPUT_DOT_FILENAME = 'output.dot'
 OUTPUT_FA_FILENAME = 'output.fa'
+READS_FILENAME = 'reads.fa'
 
 BASES = [ 'A', 'C', 'T', 'G' ]
 
@@ -63,9 +63,25 @@ def make_rc_graph(graph):
     for node in rc_graph.nodes():
         node.name += "-"
 
-    return networkx.algorithms.operators.binary.compose(graph, rc_graph)
+    combined_graph = networkx.algorithms.operators.binary.compose(graph, rc_graph)
+    distance = networkx.get_edge_attributes(combined_graph, 'd')
+    length = networkx.get_node_attributes(combined_graph, 'l')
+    coverage = networkx.get_node_attributes(combined_graph, 'C')
+
+    fixed_combined_graph = networkx.DiGraph()
+    for node in combined_graph.nodes():
+        if node.name[-1] == '+':
+            fixed_combined_graph.add_node(node, l=length[node], C=coverage[node])
+            for pair_node in combined_graph.nodes():
+                if pair_node.name[:-1] == node.name[:-1] and pair_node.name != node.name:
+                    fixed_combined_graph.add_node(pair_node, l=length[pair_node], C=coverage[pair_node])
+    for edge in combined_graph.edges():
+        fixed_combined_graph.add_edge(edge[0], edge[1], d=distance[edge])
+    return fixed_combined_graph
 
 def write_sequence_graph(graph, dot_filename, fa_filename):
+    print('Writing sequence graph... ', end='', flush=True)
+
     graph = make_rc_graph(graph)
 
     out = networkx.drawing.nx_pydot.to_pydot(networkx.DiGraph())
@@ -90,6 +106,8 @@ def write_sequence_graph(graph, dot_filename, fa_filename):
             if node.name[-1] == "+":
                 f.write('>' + node.name[:-1] + '\n' + node.sequence + '\n')
 
+    print('Done!')
+
 def add_left(graph, node, size, overlap):
     left_node = Node(next_name(), random_sequence(size - overlap) + node.sequence[:overlap])
     graph.add_node(left_node, l=size, C=0)
@@ -103,22 +121,28 @@ def add_right(graph, node, size, overlap):
     return right_node
 
 def build_input_graph():
+    print('Building input graph... ', end='', flush=True)
+
     graph = networkx.DiGraph()
     start = Node(next_name(), random_sequence(K))
     graph.add_node(start, l=K, C=0)
 
     for _ in range(2):
-        node = add_left(graph, start, K, O // 2)
+        node = add_left(graph, start, K, OVERLAP_BETWEEN_NODES)
         for _ in range(2):
-            add_left(graph, node, K, O // 2)
+            add_left(graph, node, K, OVERLAP_BETWEEN_NODES)
     for _ in range(2):
-        node = add_right(graph, start, K, O // 2)
+        node = add_right(graph, start, K, OVERLAP_BETWEEN_NODES)
         for _ in range(2):
-            add_right(graph, node, K, O // 2)
+            add_right(graph, node, K, OVERLAP_BETWEEN_NODES)
+
+    print('Done!')
 
     return graph
 
 def get_correct_paths(graph):
+    print('Finding correct paths... ', end='\n', flush=True)
+
     paths = []
     for node in graph.nodes():
         if (len(graph.in_edges(node)) == 0) or (len(graph.out_edges(node)) == 0): continue
@@ -134,9 +158,14 @@ def get_correct_paths(graph):
                         "[" + out_node.name + ": " + out_node.sequence + "]"
                     )
                     paths.append((in_node, in_edge, node, out_edge, out_node))
+
+    print('Done!')
+
     return paths
 
 def make_reads(graph, correct_paths):
+    print('Generating reads... ', end='', flush=True)
+
     reads = []
     for path in correct_paths:
         distance = networkx.get_edge_attributes(graph, 'd')
@@ -175,10 +204,30 @@ def make_reads(graph, correct_paths):
 
         for i in range(len(path_sequence) - R):
             reads.append(path_sequence[i:(i + R)])
+
+    print('Done!')
+
     return reads
 
+def write_reads(reads):
+    print('Writing reads... ', end='', flush=True)
+
+    counter = 0
+    with open(READS_FILENAME, 'w') as f:
+        for read in reads:
+            f.write('>' + str(counter) + '\n')
+            f.write(read + '\n')
+            counter += 1
+
+    print('Done!')
+
 def build_output_graph(graph, correct_paths, reads):
+    print('Building output graph...', end='', flush=True)
+
     out_graph = networkx.DiGraph()
+
+    length = networkx.get_node_attributes(graph, 'l')
+    coverage = networkx.get_node_attributes(graph, 'C')
 
     class Instance:
 
@@ -201,7 +250,7 @@ def build_output_graph(graph, correct_paths, reads):
 
         if (len(graph.in_edges(node)) == 0) or (len(graph.out_edges(node)) == 0):
             instance_node = Node(node.name + "/" + str(len(instances)), node.sequence)
-            out_graph.add_node(instance_node)
+            out_graph.add_node(instance_node, l=length[node], C=coverage[node])
             instances.append(Instance(node, instance_node, [], [], [], []))
         else:
             for in_edge in graph.in_edges(node):
@@ -233,12 +282,12 @@ def build_output_graph(graph, correct_paths, reads):
 
                 if not found:
                     instance_node = Node(node.name + "/" + str(len(instances)), node.sequence)
-                    out_graph.add_node(instance_node)
+                    out_graph.add_node(instance_node, l=length[node], C=coverage[node])
                     instances.append(Instance(node, instance_node, [ in_node ], out_nodes, [], []))
 
         if len(instances) == 0:
             instance_node = Node(node.name + "/" + str(len(instances)), node.sequence)
-            out_graph.add_node(instance_node)
+            out_graph.add_node(instance_node, l=length[node], C=coverage[node])
             instances.append(Instance(node, instance_node, [], [], [], []))
 
         node_instances[node] = instances
@@ -278,15 +327,17 @@ def build_output_graph(graph, correct_paths, reads):
                         out_graph.add_edge(instance_node, out_instance.instance_node,
                             d=distances[(instance.node, out_instance.node)])
 
+    print('Done!')
+
     return out_graph
 
 input_graph = build_input_graph()
 
 correct_paths = get_correct_paths(input_graph)
 reads = make_reads(input_graph, correct_paths)
-print("Reads:\n", reads)
 
 output_graph = build_output_graph(input_graph, correct_paths, reads)
 
 write_sequence_graph(input_graph, INPUT_DOT_FILENAME, INPUT_FA_FILENAME)
 write_sequence_graph(output_graph, OUTPUT_DOT_FILENAME, OUTPUT_FA_FILENAME)
+write_reads(reads)

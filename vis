@@ -14,38 +14,44 @@ def reverse_complement(sequence):
         rc += COMPLEMENTS[base]
     return rc
 
+def make_node_name(node, input_fa, input_comments):
+    name = str(node)
+    if len(input_comments[node]) > 0:
+        name += " (" + input_comments[node] + ")"
+    name += ": " + input_fa[node]
+    return name
+
 for prefix in INPUT_PREFIXES:
     input_dot = pygraphviz.AGraph(prefix + '.dot')
     input_fa = {}
+    input_comments = {}
     with open(prefix + '.fa', 'r') as f:
         while True:
-            name = f.readline()
-            if name == '': break
-            name = name.strip()[1:]
+            line = f.readline()
+            if line == '': break
+            line = line.strip()
+
+            name = line[1:].split()[0]
+            comment = line[(len('>') + len(name) + len(' ')):]
             sequence = f.readline().strip()
 
+            input_fa[name + "+"] = sequence
+            input_comments[name + "+"] = comment
+
             if SHOW_COMPLEMENTS:
-                input_fa[name + "+"] = sequence
                 input_fa[name + "-"] = reverse_complement(sequence)
-            else:
-                input_fa[name] = sequence
+                input_comments[name + "-"] = comment
 
     output_dot = pygraphviz.AGraph(name='adj', directed=True, strict=False, rankdir='LR')
 
     for node in input_dot.nodes():
-        if SHOW_COMPLEMENTS:
-            output_dot.add_node(node + ": " + input_fa[node])
-        elif node[-1] == "+":
-            output_dot.add_node(node[:-1] + ": " + input_fa[node[:-1]])
-        
+        if not SHOW_COMPLEMENTS and node[-1] == '-': continue
+        output_dot.add_node(make_node_name(node, input_fa, input_comments))
+
     for edge in input_dot.edges():
-        if SHOW_COMPLEMENTS:
-            node1 = edge[0] + ": " + input_fa[edge[0]]
-            node2 = edge[1] + ": " + input_fa[edge[1]]
-            output_dot.add_edge(node1, node2)
-        elif edge[0][-1] == "+":
-            node1 = edge[0][:-1] + ": " + input_fa[edge[0][:-1]]
-            node2 = edge[1][:-1] + ": " + input_fa[edge[1][:-1]]
-            output_dot.add_edge(node1, node2)
+        if not SHOW_COMPLEMENTS and edge[0][-1] == '-': continue
+        node1 = make_node_name(edge[0], input_fa, input_comments)
+        node2 = make_node_name(edge[1], input_fa, input_comments)
+        output_dot.add_edge(node1, node2)
 
     output_dot.draw(prefix + '.png', prog='dot')
