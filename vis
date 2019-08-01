@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 
 import pygraphviz
+import string
 
 INPUT_PREFIXES = [ 'input', 'output' ]
 
 COMPLEMENTS = { 'A' : 'T', 'T' : 'A', 'C' : 'G', 'G' : 'C' }
 
-SHOW_COMPLEMENTS = False
+SHOW_COMPLEMENTS = True
 
 def reverse_complement(sequence):
     rc = ''
@@ -20,6 +21,12 @@ def make_node_name(node, input_fa, input_comments):
         name += " (" + input_comments[node] + ")"
     name += ": " + input_fa[node]
     return name
+
+def shorten(sequence):
+    if len(sequence) <= 8:
+        return sequence
+    else:
+        return sequence[:4] + "..." + sequence[-4:]
 
 for prefix in INPUT_PREFIXES:
     input_dot = pygraphviz.AGraph(prefix + '.dot')
@@ -35,11 +42,11 @@ for prefix in INPUT_PREFIXES:
             comment = line[(len('>') + len(name) + len(' ')):]
             sequence = f.readline().strip()
 
-            input_fa[name + "+"] = sequence
+            input_fa[name + "+"] = shorten(sequence)
             input_comments[name + "+"] = comment
 
             if SHOW_COMPLEMENTS:
-                input_fa[name + "-"] = reverse_complement(sequence)
+                input_fa[name + "-"] = shorten(reverse_complement(sequence))
                 input_comments[name + "-"] = comment
 
     output_dot = pygraphviz.AGraph(name='adj', directed=True, strict=False, rankdir='LR')

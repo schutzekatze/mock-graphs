@@ -4,18 +4,21 @@ import networkx
 import copy
 import random
 
-K = 30
+K = 160
 O = K - 1
 D = -O
-R = 45
-MIN_MARGIN = 2
-MIN_TESTS = 5
+R = 250
+MIN_MARGIN = 3
+MIN_TESTS = 18
 MAX_TESTS = int(MIN_TESTS * 1.25)
-FRAMES_PER_READ = 2
+FRAMES_PER_READ = 10
 SCORE_PEAK_FACTOR = 0.24
 
 CORRECT_PATHS_FRACTION = 0.5
 OVERLAP_BETWEEN_NODES = O // 2
+# Chance of 0 errors, chance of 1 error, etc.
+ERROR_COUNT_CUMULATIVE_DISTRIBUTION = [ 0.30, 0.80, 1.0 ]
+CORRECT_PATHS_FILENAME = 'correct_paths'
 
 INPUT_DOT_FILENAME = 'input.dot'
 INPUT_FA_FILENAME = 'input.fa'
@@ -24,6 +27,12 @@ OUTPUT_FA_FILENAME = 'output.fa'
 READS_FILENAME = 'reads.fa'
 
 BASES = [ 'A', 'C', 'T', 'G' ]
+
+def shorten(sequence):
+    if len(sequence) <= 8:
+        return sequence
+    else:
+        return sequence[:4] + "..." + sequence[-4:]
 
 def read_long_enough(read_size, repeat_size):
     return read_size >= MIN_TESTS - 1 + MIN_MARGIN + repeat_size + MIN_MARGIN
@@ -144,20 +153,21 @@ def get_correct_paths(graph):
     print('Finding correct paths... ', end='\n', flush=True)
 
     paths = []
-    for node in graph.nodes():
-        if (len(graph.in_edges(node)) == 0) or (len(graph.out_edges(node)) == 0): continue
+    with open(CORRECT_PATHS_FILENAME, 'w') as f:
+        for node in graph.nodes():
+            if (len(graph.in_edges(node)) == 0) or (len(graph.out_edges(node)) == 0): continue
 
-        for in_edge in graph.in_edges(node):
-            for out_edge in graph.out_edges(node):
-                if random.random() <= CORRECT_PATHS_FRACTION:
-                    in_node = in_edge[0]
-                    out_node = out_edge[1]
-                    print(
-                        "[" + in_node.name + ": " + in_node.sequence + "] -> " + \
-                        "[" + node.name + ": " + node.sequence + "] -> " + \
-                        "[" + out_node.name + ": " + out_node.sequence + "]"
-                    )
-                    paths.append((in_node, in_edge, node, out_edge, out_node))
+            for in_edge in graph.in_edges(node):
+                for out_edge in graph.out_edges(node):
+                    if random.random() <= CORRECT_PATHS_FRACTION:
+                        in_node = in_edge[0]
+                        out_node = out_edge[1]
+                        f.write(
+                            "[" + in_node.name + ": " + shorten(in_node.sequence) + "] -> " + \
+                            "[" + node.name + ": " + shorten(node.sequence) + "] -> " + \
+                            "[" + out_node.name + ": " + shorten(out_node.sequence) + "]\n"
+                        )
+                        paths.append((in_node, in_edge, node, out_edge, out_node))
 
     print('Done!')
 
@@ -203,7 +213,25 @@ def make_reads(graph, correct_paths):
             path_sequence = in_sequence + path_sequence + out_sequence
 
         for i in range(len(path_sequence) - R):
-            reads.append(path_sequence[i:(i + R)])
+            read = path_sequence[i:(i + R)]
+            r = random.random()
+            error_positions = []
+            for error_count in range(len(ERROR_COUNT_CUMULATIVE_DISTRIBUTION)):
+                if r <= ERROR_COUNT_CUMULATIVE_DISTRIBUTION[error_count]:
+                    for _ in range(error_count):
+                        while True:
+                            pos = random.randint(0, len(read) - 1)
+                            if not pos in error_positions:
+                                error_positions.append(pos)
+                                break
+                    break
+            for pos in error_positions:
+                while True:
+                    erroneous_base = BASES[random.randint(0, len(BASES) - 1)]
+                    if (erroneous_base != read[pos]):
+                        read = read[:pos] + erroneous_base + read[(pos + 1):]
+                        break
+            reads.append(read)
 
     print('Done!')
 
