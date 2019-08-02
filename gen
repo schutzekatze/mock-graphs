@@ -4,14 +4,14 @@ import networkx
 import copy
 import random
 
-K = 160
+K = 6
 O = K - 1
 D = -O
-R = 250
-MIN_MARGIN = 3
-MIN_TESTS = 18
+R = 9
+MIN_MARGIN = 1
+MIN_TESTS = 4
 MAX_TESTS = int(MIN_TESTS * 1.25)
-FRAMES_PER_READ = 10
+FRAMES_PER_READ = 1
 SCORE_PEAK_FACTOR = 0.24
 
 CORRECT_PATHS_FRACTION = 0.5
@@ -136,14 +136,18 @@ def build_input_graph():
     start = Node(next_name(), random_sequence(K))
     graph.add_node(start, l=K, C=0)
 
-    for _ in range(2):
-        node = add_left(graph, start, K, OVERLAP_BETWEEN_NODES)
-        for _ in range(2):
-            add_left(graph, node, K, OVERLAP_BETWEEN_NODES)
-    for _ in range(2):
-        node = add_right(graph, start, K, OVERLAP_BETWEEN_NODES)
-        for _ in range(2):
-            add_right(graph, node, K, OVERLAP_BETWEEN_NODES)
+    #for _ in range(2):
+    #    node = add_left(graph, start, K, OVERLAP_BETWEEN_NODES)
+    #    for _ in range(2):
+    #        add_left(graph, node, K, OVERLAP_BETWEEN_NODES)
+    #for _ in range(2):
+    #    node = add_right(graph, start, K, OVERLAP_BETWEEN_NODES)
+    #    for _ in range(2):
+    #        add_right(graph, node, K, OVERLAP_BETWEEN_NODES)
+
+    add_left(graph, start, K, OVERLAP_BETWEEN_NODES)
+    add_right(graph, start, K, OVERLAP_BETWEEN_NODES)
+    graph.add_edge(start, start, d=-(K - 1))
 
     print('Done!')
 

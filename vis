@@ -59,6 +59,6 @@ for prefix in INPUT_PREFIXES:
         if not SHOW_COMPLEMENTS and edge[0][-1] == '-': continue
         node1 = make_node_name(edge[0], input_fa, input_comments)
         node2 = make_node_name(edge[1], input_fa, input_comments)
-        output_dot.add_edge(node1, node2)
+        output_dot.add_edge(node1, node2, label=edge.attr['d'])
 
     output_dot.draw(prefix + '.png', prog='dot')
